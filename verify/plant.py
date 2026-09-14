@@ -3,7 +3,7 @@
 record's head_hash. `verify.py --root <scratch>` must then FAIL. Prints the scratch root."""
 import json, pathlib, shutil, sys, tempfile
 
-root = pathlib.Path(__file__).resolve().parents[1]
+root = pathlib.Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else pathlib.Path(__file__).resolve().parents[1]
 scratch = pathlib.Path(tempfile.mkdtemp(prefix="witness-planted-"))
 shutil.copytree(root / "records", scratch / "records")
 for chain_dir in sorted((scratch / "records").glob("*")):
