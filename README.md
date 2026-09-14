@@ -4,7 +4,9 @@ This repository is an off-estate witness of the LogiRoot governance receipt chai
 gate host publishes one record that commits to the chain head at that moment. The records are
 append-only: each names the hash of the record before it, and the repository's history is public.
 
-Each record under `records/<chain>/` is a JSON object with exactly these fields:
+Records are published on the `records` branch of this repository (an append-only branch: the
+repository rules block non-fast-forward pushes and deletion on it). Each record under
+`records/<chain>/` there is a JSON object with exactly these fields:
 
 `schema_version`, `height`, `head_hash`, `utc_time`, `prev_witness_hash`, `key_id`, `signature`
 
