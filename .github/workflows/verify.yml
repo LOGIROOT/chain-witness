@@ -1,0 +1,45 @@
+name: verify
+
+# Runs off the LogiRoot estate, with no credentials: every record is verified from the public key
+# directory alone. The planted-wrong step proves the verifier can fail; a green run whose control
+# cannot go red would be decoration.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet dilithium-py
+      - name: Every published record verifies from the public key directory
+        run: python verify/verify.py
+      - name: CONTROL, a planted-wrong record must fail
+        run: |
+          set -e
+          latest=$(ls records/gate-local/*.json | grep -v latest.json | sort -t/ -k3 -n | tail -1)
+          mkdir -p /tmp/planted/records/gate-local
+          cp records/gate-local/*.json /tmp/planted/records/gate-local/
+          python - "$latest" <<'PY'
+          import json, sys, pathlib
+          p = pathlib.Path(sys.argv[1]); rec = json.loads(p.read_text())
+          h = rec["head_hash"]; rec["head_hash"] = h[:-1] + ("0" if h[-1] != "0" else "1")
+          out = pathlib.Path("/tmp/planted") / p
+          out.write_text(json.dumps(rec, indent=1) + "\n")
+          print("planted a one-character change in head_hash of", p.name)
+          PY
+          if python verify/verify.py --root /tmp/planted; then
+            echo "::error::the planted-wrong record PASSED; the verifier cannot fail"; exit 1
+          fi
+          echo "control held: the planted-wrong record failed verification"
