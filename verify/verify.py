@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verify LogiRoot chain witness records with no credentials.
 
-For every record under records/<chain>/ (newest first, or one file given on the command line):
+For every record under records/<chain>/ (in height order, or one file given on the command line):
   1. the record has exactly the seven published fields;
   2. `signature` (base64) verifies with ML-DSA-65 over the ASCII bytes of `head_hash`, under the
      public key the LogiRoot key directory lists for `key_id`;
@@ -13,7 +13,8 @@ Exit 0 when every checked record passes; 1 when any fails. Requires the pure-Pyt
 
 Usage:
   python verify/verify.py                       # every record of every chain
-  python verify/verify.py records/gate-local/30402067.json
+  python verify/verify.py --root <checkout>     # records under another checkout
+  python verify/verify.py records/gate-local/30402085.json
   python verify/verify.py --directory keys.json # use a saved copy of the key directory
 """
 from __future__ import annotations
@@ -29,9 +30,11 @@ import urllib.request
 FIELDS = ("schema_version", "height", "head_hash", "utc_time", "prev_witness_hash", "key_id", "signature")
 KEY_DIRECTORY = "https://api.logirootai.com/.well-known/logiroot-signing-keys.json"
 GENESIS_PREV = "0" * 64
+LF = b"\n"
+CRLF = b"\r\n"
 # One record, height 30402144 (2026-09-14T23:15Z), was published with its previous-record hash computed
 # over CRLF line endings by a Windows checkout. The rule is LF; that one record is accepted under the
-# legacy hash and said so aloud. No record above this height may use it.
+# legacy hash and the verifier says so aloud. No record above this height may use it.
 LEGACY_CRLF_MAX_HEIGHT = 30402144
 
 
@@ -39,6 +42,14 @@ def load_directory(path: str | None) -> dict:
     if path:
         return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
     return json.load(urllib.request.urlopen(KEY_DIRECTORY, timeout=30))
+
+
+def lf_bytes(raw: bytes) -> bytes:
+    return raw.replace(CRLF, LF)
+
+
+def crlf_bytes(raw: bytes) -> bytes:
+    return lf_bytes(raw).replace(LF, CRLF)
 
 
 def check_record(path: pathlib.Path, prev_path: pathlib.Path | None, directory: dict) -> list[str]:
@@ -64,14 +75,8 @@ def check_record(path: pathlib.Path, prev_path: pathlib.Path | None, directory: 
             faults.append("first record must name the all-zero previous hash")
     else:
         raw = prev_path.read_bytes()
-        want = hashlib.sha256(raw.replace(b"
-", b"
-")).hexdigest()
-        legacy = hashlib.sha256(raw.replace(b"
-", b"
-").replace(b"
-", b"
-")).hexdigest()
+        want = hashlib.sha256(lf_bytes(raw)).hexdigest()
+        legacy = hashlib.sha256(crlf_bytes(raw)).hexdigest()
         if rec["prev_witness_hash"] == want:
             pass
         elif rec["prev_witness_hash"] == legacy and int(rec["height"]) <= LEGACY_CRLF_MAX_HEIGHT:
