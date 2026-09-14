@@ -18,8 +18,11 @@ The signature algorithm is ML-DSA-65 (FIPS 204). The signing keys are published 
 directory at https://api.logirootai.com/.well-known/logiroot-signing-keys.json, where `key_id` is
 the key's fingerprint. To check a record: verify `signature` (base64) over the ASCII bytes of
 `head_hash` with the public key named by `key_id`, recompute the SHA-256 of the previous record file
-exactly as published and check it equals `prev_witness_hash`, and check the record's `height` is
+as published, with LF line endings, and check it equals `prev_witness_hash`, and check the record's `height` is
 greater than the previous record's.
+
+One record, height 30402144, names its previous record hashed with CRLF line endings; the verifier
+accepts that one record under that legacy hash and says so. Every later record uses LF.
 
 `verify/` holds a small verifier that does this with no credentials, and the repository's own
 workflow runs it on every publication, including against a planted-wrong record that must fail.

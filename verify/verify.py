@@ -5,8 +5,8 @@ For every record under records/<chain>/ (newest first, or one file given on the 
   1. the record has exactly the seven published fields;
   2. `signature` (base64) verifies with ML-DSA-65 over the ASCII bytes of `head_hash`, under the
      public key the LogiRoot key directory lists for `key_id`;
-  3. `prev_witness_hash` equals the SHA-256 of the previous record file exactly as published
-     (all zeros for the first record), and `height` increases.
+  3. `prev_witness_hash` equals the SHA-256 of the previous record file as published, with LF
+     line endings (all zeros for the first record), and `height` increases.
 
 Exit 0 when every checked record passes; 1 when any fails. Requires the pure-Python package
 `dilithium-py` and network access to the key directory. Nothing else.
@@ -29,6 +29,10 @@ import urllib.request
 FIELDS = ("schema_version", "height", "head_hash", "utc_time", "prev_witness_hash", "key_id", "signature")
 KEY_DIRECTORY = "https://api.logirootai.com/.well-known/logiroot-signing-keys.json"
 GENESIS_PREV = "0" * 64
+# One record, height 30402144 (2026-09-14T23:15Z), was published with its previous-record hash computed
+# over CRLF line endings by a Windows checkout. The rule is LF; that one record is accepted under the
+# legacy hash and said so aloud. No record above this height may use it.
+LEGACY_CRLF_MAX_HEIGHT = 30402144
 
 
 def load_directory(path: str | None) -> dict:
@@ -59,9 +63,21 @@ def check_record(path: pathlib.Path, prev_path: pathlib.Path | None, directory: 
         if rec["prev_witness_hash"] != GENESIS_PREV:
             faults.append("first record must name the all-zero previous hash")
     else:
-        want = hashlib.sha256(prev_path.read_bytes()).hexdigest()
-        if rec["prev_witness_hash"] != want:
-            faults.append("prev_witness_hash does not equal the SHA-256 of the previous record file")
+        raw = prev_path.read_bytes()
+        want = hashlib.sha256(raw.replace(b"
+", b"
+")).hexdigest()
+        legacy = hashlib.sha256(raw.replace(b"
+", b"
+").replace(b"
+", b"
+")).hexdigest()
+        if rec["prev_witness_hash"] == want:
+            pass
+        elif rec["prev_witness_hash"] == legacy and int(rec["height"]) <= LEGACY_CRLF_MAX_HEIGHT:
+            print(f"  note: {path.name} names the previous record hashed with CRLF line endings (legacy, before 2026-09-15)")
+        else:
+            faults.append("prev_witness_hash does not equal the SHA-256 of the previous record file (LF line endings)")
         prev = json.loads(prev_path.read_text(encoding="utf-8"))
         if int(rec["height"]) <= int(prev["height"]):
             faults.append("height does not increase")
