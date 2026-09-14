@@ -6,7 +6,7 @@ name: verify
 
 on:
   push:
-    branches: [main, records]
+    branches: [main]
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
@@ -30,18 +30,8 @@ jobs:
       - name: CONTROL, a planted-wrong record must fail
         run: |
           set -e
-          latest=$(ls records/gate-local/*.json | grep -v latest.json | sort -t/ -k3 -n | tail -1)
-          mkdir -p /tmp/planted/records/gate-local
-          cp records/gate-local/*.json /tmp/planted/records/gate-local/
-          python - "$latest" <<'PY'
-          import json, sys, pathlib
-          p = pathlib.Path(sys.argv[1]); rec = json.loads(p.read_text())
-          h = rec["head_hash"]; rec["head_hash"] = h[:-1] + ("0" if h[-1] != "0" else "1")
-          out = pathlib.Path("/tmp/planted") / p
-          out.write_text(json.dumps(rec, indent=1) + "\n")
-          print("planted a one-character change in head_hash of", p.name)
-          PY
-          if python verify/verify.py --root /tmp/planted; then
+          scratch=$(python verify/plant.py)
+          if python verify/verify.py --root "$scratch"; then
             echo "::error::the planted-wrong record PASSED; the verifier cannot fail"; exit 1
           fi
           echo "control held: the planted-wrong record failed verification"
