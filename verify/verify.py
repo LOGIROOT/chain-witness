@@ -94,6 +94,40 @@ def schema_of(rec: dict) -> int:
     raise Refused(f"fields are {list(keys)} with schema_version {rec.get('schema_version')!r}; expected schema 1 or 2")
 
 
+def _instant(value):
+    from datetime import datetime, timezone
+    if not value:
+        return None
+    s = str(value).strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        d = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+def lifecycle_faults(entry: dict, signed_at: str) -> list[str]:
+    """The key directory's lifecycle, read at verification time. A key entry with no lifecycle
+    fields (a directory older than A-KEYDIR-1) yields no fault and no assurance; a revoked key
+    yields a fault that names WHEN relative to the signing instant, never a bare failure."""
+    at = _instant(signed_at)
+    revoked = _instant(entry.get("revoked_at"))
+    valid_from = _instant(entry.get("valid_from"))
+    faults: list[str] = []
+    if at is None:
+        return ["record utc_time cannot be read"]
+    if valid_from is not None and at < valid_from:
+        faults.append("signed before the key was registered")
+    if revoked is not None:
+        if at >= revoked:
+            faults.append(f"signed after the key was revoked at {entry.get('revoked_at')}")
+        else:
+            faults.append(f"key revoked after signing at {entry.get('revoked_at')}: trust withdrawn, not valid")
+    return faults
+
+
 def check_record(path: pathlib.Path, prev_path: pathlib.Path | None, directory: dict) -> list[str]:
     from dilithium_py.ml_dsa import ML_DSA_65
 
@@ -113,6 +147,10 @@ def check_record(path: pathlib.Path, prev_path: pathlib.Path | None, directory: 
         sig = base64.b64decode(rec["signature"])
         if not ML_DSA_65.verify(pk, str(rec["head_hash"]).encode("ascii"), sig):
             faults.append("signature does not verify over head_hash under key_id")
+        # A-KEYDIR-1: a signature that verifies proves the key signed; the directory's lifecycle
+        # says whether the key was trusted WHEN it signed. Revocation withdraws trust; rotation
+        # (a planned retirement) does not, for what was signed while the key was active.
+        faults.extend(lifecycle_faults(entry, str(rec["utc_time"])))
     if prev_path is None:
         if rec["prev_witness_hash"] != GENESIS_PREV:
             faults.append("first record must name the all-zero previous hash")
