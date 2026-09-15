@@ -58,6 +58,19 @@ def test_schema_1_is_the_seven_fields_and_nothing_else():
         v.schema_of(missing)
 
 
+def test_lifecycle_faults_name_revocation_relative_to_the_signing_instant():
+    live = {"fingerprint": "f", "status": "active", "valid_from": "2026-06-04T18:08:51+00:00"}
+    assert v.lifecycle_faults(live, "2026-09-15T00:00:00+00:00") == []
+    old_dir = {"fingerprint": "f", "status": "active"}  # a directory older than A-KEYDIR-1
+    assert v.lifecycle_faults(old_dir, "2026-09-15T00:00:00+00:00") == []
+    after = dict(live, status="revoked", revoked_at="2026-09-10T00:00:00+00:00")
+    assert v.lifecycle_faults(after, "2026-09-15T00:00:00+00:00") == ["signed after the key was revoked at 2026-09-10T00:00:00+00:00"]
+    before = dict(live, status="revoked", revoked_at="2026-09-20T00:00:00+00:00")
+    assert v.lifecycle_faults(before, "2026-09-15T00:00:00+00:00") == ["key revoked after signing at 2026-09-20T00:00:00+00:00: trust withdrawn, not valid"]
+    assert v.lifecycle_faults(live, "2026-01-01T00:00:00+00:00") == ["signed before the key was registered"]
+    assert v.lifecycle_faults(live, "not a time") == ["record utc_time cannot be read"]
+
+
 def test_legacy_crlf_acceptance_is_bounded_to_one_height(tmp_path):
     raw = json.dumps(REC1, indent=1).encode() + b"\n"
     want, legacy = v.link_digest(REC1, raw, None)
